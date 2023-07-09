@@ -130,6 +130,21 @@ find_free_data_block(file_system* fs) {
     return -1; // No free data block found
 }
 
+// Helper function to ...
+char*
+getFileName(char* path) {
+    char* filename = strrchr(path, '/'); // Find the last occurrence of '/'
+    if (filename == NULL) {
+        filename = strrchr(path, '\\'); // Find the last occurrence of '\'
+    }
+    if (filename == NULL) {
+        filename = path; // If no '/' or '\' found, assume the path is the filename
+    } else {
+        filename++; // Move past the '/' or '\'
+    }
+    return filename;
+}
+
 /**********************************************************************************************************************************************/
 
 /* ***** ***** ***** *****  OPERATIONS  ***** ***** ***** ***** */
@@ -619,12 +634,35 @@ fs_rm(file_system* fs, char* path) {
 
 int
 fs_import(file_system* fs, char* int_path, char* ext_path) {
-    // TODO: Check internal path is valid
-    // TODO: Check external path is valid
+    FILE* file = fopen(ext_path, "r"); // Open a file for reading
+    if (file == NULL) {
+        printf("No such file or directory\n");
+        return -1;
+    }
+    fseek (file, 0, SEEK_END);
+    long length = ftell(file);
+    fseek (file, 0, SEEK_SET);
 
-    // TODO: mkfile (internal path to external path)
-    // TODO: writef (writes content into the file which created)
-    return 0;
+    char* buffer = malloc (sizeof(char) * (length + 1));
+    memset(buffer, '\0', length + 1);
+    if (length > 0)
+        fread(buffer, sizeof(char), length, file);   
+
+    // Resolve internal path for the create file
+    char* ext_filename = getFileName(ext_path);
+    int size = (strlen(int_path) + strlen(ext_filename) + 2);
+    char* arg = malloc(sizeof(char) * size); memset(arg, '\0', size);
+    strcpy(arg, int_path);
+    if (int_path[strlen(int_path) - 1] != '/')
+        strcat(arg, "/");
+    strcat(arg, ext_filename);
+
+    int result = fs_mkfile(fs, strdup(arg));
+    if (result == -1)
+        return result;
+
+    result = fs_writef(fs, arg, buffer);
+    return result;
 }
 
 int

@@ -32,6 +32,17 @@ int find_inode(file_system* fs, char* path) {
 }
 
 // Helper function to ...
+int find_inode_name(file_system* fs, const char* name) {
+    for (int i = 0; i < fs->s_block->num_blocks; i++) {
+        inode* curr_inode = &fs->inodes[i];
+        if (curr_inode->n_type != free_block && strcmp(curr_inode->name, name) == 0) {
+            return i; // Found the inode with the matching name
+        }
+    }
+    return -1; // Inode not found
+}
+
+// Helper function to ...
 void remove_inode(file_system* fs, int inode_num) {
     inode* curr_inode = &fs->inodes[inode_num];
 
@@ -47,6 +58,9 @@ void remove_inode(file_system* fs, int inode_num) {
 
     // Clear the inode
     memset(curr_inode, 0, sizeof(inode));
+    curr_inode->n_type = 3;
+    curr_inode->direct_blocks[0] = -1;
+    fs->free_list[0] = 1;
 }
 
 // Helper function to ...
@@ -56,6 +70,7 @@ void remove_inode_from_parent_directory(file_system* fs, int parent_inode_num, i
     for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
         if (parent_inode->direct_blocks[i] == inode_num) {
             parent_inode->direct_blocks[i] = -1; // Clear the entry
+            parent_inode->n_type = 3;
             break;
         }
     }
@@ -150,6 +165,9 @@ getFileName(char* path) {
 /* ***** ***** ***** *****  OPERATIONS  ***** ***** ***** ***** */
 int
 fs_mkdir(file_system* fs, char* path) {
+    if (path[0] != '/')
+        return -1;
+
     // Separate the parent directory and the new directory name
     char* parent_path = NULL;
     char* dir_name = path;
@@ -277,6 +295,9 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         printf("File '%s' created successfully in the root directory.\n", filename);
         return 0;
     }
+
+    if (path_and_name[0] != '/')
+        return -1;
 
     // Separate the path and filename
     *last_slash = '\0';  // Replace the last '/' with '\0' to separate the path
@@ -591,14 +612,14 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
     }
 
     // Allocate memory for the buffer
-    uint8_t* buffer = (uint8_t*)malloc(*file_size);
+    char* buffer = (char*)malloc(sizeof(char) * (*file_size));
     if (buffer == NULL) {
         printf("Memory allocation failed.\n");
         return NULL;
     }
 
     // Read the file into the buffer
-    uint8_t* ptr = buffer;
+    char* ptr = buffer;
     for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
         int block_num = file_inode->direct_blocks[i];
         if (block_num != -1) {
@@ -607,8 +628,14 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
             ptr += block->size;
         }
     }
+    
 
-    return buffer;
+    printf("[READF] SIZE: %d\nCONTENT: %s\n", (*file_size), buffer);
+
+    if (*file_size == 0)
+        return NULL;
+
+    return (uint8_t*) buffer;
 }
 
 int
@@ -636,7 +663,7 @@ int
 fs_import(file_system* fs, char* int_path, char* ext_path) {
     FILE* file = fopen(ext_path, "r"); // Open a file for reading
     if (file == NULL) {
-        printf("No such file or directory\n");
+        printf("IMPORT: No such file or directory\n");
         return -1;
     }
     fseek (file, 0, SEEK_END);
@@ -648,20 +675,12 @@ fs_import(file_system* fs, char* int_path, char* ext_path) {
     if (length > 0)
         fread(buffer, sizeof(char), length, file);   
 
-    // Resolve internal path for the create file
-    char* ext_filename = getFileName(ext_path);
-    int size = (strlen(int_path) + strlen(ext_filename) + 2);
-    char* arg = malloc(sizeof(char) * size); memset(arg, '\0', size);
-    strcpy(arg, int_path);
-    if (int_path[strlen(int_path) - 1] != '/')
-        strcat(arg, "/");
-    strcat(arg, ext_filename);
+    int result = fs_mkfile(fs, strdup(int_path));
+    result = fs_writef(fs, int_path, buffer);
 
-    int result = fs_mkfile(fs, strdup(arg));
-    if (result == -1)
-        return result;
+    if (result != 0)
+        return -1;
 
-    result = fs_writef(fs, arg, buffer);
     return result;
 }
 
@@ -674,23 +693,14 @@ fs_export(file_system* fs, char* int_path, char* ext_path) {
         return -1;
     }
 
-    char* int_filename = getFileName(strdup(int_path));
-    int local_os_filepath_size = strlen(ext_path) + strlen(int_filename) + 2;
-    char* local_os_filepath = malloc(sizeof(char) * local_os_filepath_size); memset(local_os_filepath, '\0', local_os_filepath_size);
-
-    strcpy(local_os_filepath, ext_path);
-    if (ext_path[strlen(ext_path) - 1] != '/')
-        strcat(local_os_filepath, "/");
-    strcat(local_os_filepath, int_filename);
-
-    FILE* file = fopen(local_os_filepath, "r");
+    FILE* file = fopen(ext_path, "r");
     if (file != NULL) {
         printf("Error: File already exists.\n");
         fclose(file);
         return -1;
     }
 
-    file = fopen(local_os_filepath, "w");
+    file = fopen(ext_path, "w");
     if (file == NULL) {
         printf("Error: Failed to create the file.\n");
         return -1;

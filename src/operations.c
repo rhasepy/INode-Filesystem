@@ -504,6 +504,7 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
         parent_inode_num = find_parent_directory(fs, path);
         if (parent_inode_num == -1) {
             free(path);
+            free(filename);
             return NULL;
         }
     }
@@ -524,8 +525,12 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
 
     if (file_inode_num == -1) {
         free(path);
+        free(filename);
         return NULL;
     }
+
+    free(path);
+    free(filename);
 
     inode* file_inode = &fs->inodes[file_inode_num];
     if (file_inode->n_type != reg_file) {
@@ -604,6 +609,9 @@ fs_import(file_system* fs, char* int_path, char* ext_path) {
     int result = fs_mkfile(fs, strdup(int_path));    
     result = fs_writef(fs, int_path, buffer);    
 
+    fclose(file);
+    free(buffer);
+
     if (result > 0)
         return 0;
     return -1;
@@ -629,6 +637,7 @@ fs_export(file_system* fs, char* int_path, char* ext_path) {
     }
 
     fwrite(content, sizeof(char), fileSize, file);
-    fclose(file);    
+    free(content);
+    fclose(file);
     return 0;
 }

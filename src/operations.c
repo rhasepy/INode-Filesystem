@@ -5,8 +5,65 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ***** ***** ***** *****  HELPER  ***** ***** ***** ***** */
+// Helper function to ...
+int find_inode(file_system* fs, char* path) {
+    int curr_inode = fs->root_node;
+    char* token = strtok(path, "/");
+    while (token != NULL) {
+        int found = 0;
+        for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
+            int inode_num = fs->inodes[curr_inode].direct_blocks[i];
+            if (inode_num != -1) {
+                inode* next_inode = &fs->inodes[inode_num];
+                if (strcmp(next_inode->name, token) == 0) {
+                    curr_inode = inode_num;
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            return -1; // Directory or file not found
+        }
+        token = strtok(NULL, "/");
+    }
+    return curr_inode;
+}
+
+// Helper function to ...
+void remove_inode(file_system* fs, int inode_num) {
+    inode* curr_inode = &fs->inodes[inode_num];
+
+    if (curr_inode->n_type == directory) {
+        // Remove all subdirectories and files recursively
+        for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
+            int sub_inode_num = curr_inode->direct_blocks[i];
+            if (sub_inode_num != -1) {
+                remove_inode(fs, sub_inode_num);
+            }
+        }
+    }
+
+    // Clear the inode
+    memset(curr_inode, 0, sizeof(inode));
+}
+
+// Helper function to ...
+void remove_inode_from_parent_directory(file_system* fs, int parent_inode_num, int inode_num) {
+    inode* parent_inode = &fs->inodes[parent_inode_num];
+
+    for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
+        if (parent_inode->direct_blocks[i] == inode_num) {
+            parent_inode->direct_blocks[i] = -1; // Clear the entry
+            break;
+        }
+    }
+}
+
 // Helper function to find the directory inode index given the path
-int find_parent_directory(file_system* fs, char* path) {
+int
+find_parent_directory(file_system* fs, char* path) {
     // Separate the path into directory names
     char* token = strtok(path, "/");
     int parent_inode_num = fs->root_node;
@@ -42,6 +99,7 @@ int find_parent_directory(file_system* fs, char* path) {
     return parent_inode_num;
 }
 
+// Helper function to ...
 char*
 reverse_str(char *str)
 {
@@ -58,6 +116,7 @@ reverse_str(char *str)
     return str;
 }
 
+// Helper function to ...
 int
 find_free_data_block(file_system* fs) {
     // Iterate over data blocks and find the first free data block
@@ -71,6 +130,9 @@ find_free_data_block(file_system* fs) {
     return -1; // No free data block found
 }
 
+/**********************************************************************************************************************************************/
+
+/* ***** ***** ***** *****  OPERATIONS  ***** ***** ***** ***** */
 int
 fs_mkdir(file_system* fs, char* path) {
     // Separate the parent directory and the new directory name
@@ -306,7 +368,7 @@ fs_list(file_system* fs, char* path) {
     }
 
     // Allocate memory for the result string
-    int result_size = num_entries * (NAME_MAX_LENGTH + 10); // Assuming max length of entry name + 10 characters for "DIR " or "FILE "
+    int result_size = num_entries * (NAME_MAX_LENGTH + 10); // Assuming max length of entry name + 10 characters for "DIR " or "FILE"
     char* result = (char*)malloc((result_size + 1) * sizeof(char));
     result[0] = '\0';
 
@@ -318,7 +380,7 @@ fs_list(file_system* fs, char* path) {
             if (entry_inode->n_type == directory) {
                 snprintf(result + strlen(result), result_size - strlen(result), "DIR %s\n", entry_inode->name);
             } else if (entry_inode->n_type == reg_file) {
-                snprintf(result + strlen(result), result_size - strlen(result), "FILE %s\n", entry_inode->name);
+                snprintf(result + strlen(result), result_size - strlen(result), "FIL %s\n", entry_inode->name);
             }
         }
     }
@@ -326,7 +388,8 @@ fs_list(file_system* fs, char* path) {
     return result;
 }
 
-int fs_writef(file_system* fs, char* filepath, char* text) {
+int
+fs_writef(file_system* fs, char* filepath, char* text) {
     // Separate the path and filename
     char* path = strdup(filepath);
     char* filename = strrchr(path, '/');
@@ -535,168 +598,41 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
 
 int
 fs_rm(file_system* fs, char* path) {
-    return 0;
+    int inode_num = find_inode(fs, path);
+    if (inode_num == -1) {
+        printf("Directory or file not found.\n");
+        return -1; // File or directory not found
+    }
+
+    inode* curr_inode = &fs->inodes[inode_num];
+    int parent_inode_num = curr_inode->parent;
+
+    // Remove the inode from its parent directory
+    remove_inode_from_parent_directory(fs, parent_inode_num, inode_num);
+
+    // Remove the inode and its subdirectories/files recursively
+    remove_inode(fs, inode_num);
+
+    printf("Directory or file removed success!\n");
+    return 0; // Removal successful
 }
 
 int
 fs_import(file_system* fs, char* int_path, char* ext_path) {
-    // Open the external file for reading
-    FILE* file = fopen(ext_path, "rb");
-    if (file == NULL) {
-        printf("Failed to open external file.\n");
-        return -1;
-    }
+    // TODO: Check internal path is valid
+    // TODO: Check external path is valid
 
-    // Get the parent directory inode number
-    int parent_inode_number = fs->root_node;
-    char* token = strtok(int_path, "/");
-    while (token != NULL) {
-        // Check if the parent inode is a directory
-        if (fs->inodes[parent_inode_number].n_type != directory) {
-            printf("Parent is not a directory.\n");
-            fclose(file);
-            return -1;
-        }
-
-        // Check if the directory exists
-        int child_inode_number = -1;
-        for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
-            if (fs->inodes[parent_inode_number].direct_blocks[i] != -1 &&
-                strcmp(fs->inodes[fs->inodes[parent_inode_number].direct_blocks[i]].name, token) == 0) {
-                child_inode_number = fs->inodes[parent_inode_number].direct_blocks[i];
-                break;
-            }
-        }
-
-        // Directory does not exist
-        if (child_inode_number == -1) {
-            printf("Directory does not exist.\n");
-            fclose(file);
-            return -1;
-        }
-
-        parent_inode_number = child_inode_number;
-        token = strtok(NULL, "/");
-    }
-
-    // Check if the file already exists in the parent directory
-    for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
-        if (fs->inodes[parent_inode_number].direct_blocks[i] != -1 &&
-            strcmp(fs->inodes[fs->inodes[parent_inode_number].direct_blocks[i]].name, ext_path) == 0) {
-            printf("File already exists.\n");
-            fclose(file);
-            return -1;
-        }
-    }
-
-    // Find a free inode for the new file
-    int new_inode_number = find_free_inode(fs);
-    if (new_inode_number == -1) {
-        printf("No free inode available.\n");
-        fclose(file);
-        return -1;
-    }
-
-    // Find a free data block for the new file
-    int new_data_block_number = find_free_data_block(fs);
-    if (new_data_block_number == -1) {
-        printf("No free data block available.\n");
-        fclose(file);
-        return -1;
-    }
-
-    // Update the parent inode with the new file entry
-    fs->inodes[parent_inode_number].direct_blocks[fs->inodes[parent_inode_number].size] = new_inode_number;
-    fs->inodes[parent_inode_number].size++;
-    strcpy(fs->inodes[new_inode_number].name, ext_path);
-    fs->inodes[new_inode_number].n_type = reg_file;
-    fs->inodes[new_inode_number].size = 0;
-    fs->inodes[new_inode_number].parent = parent_inode_number;
-    fs->inodes[new_inode_number].direct_blocks[0] = new_data_block_number;
-
-    // Read the external file and write its contents to the data block
-    fseek(file, 0, SEEK_END);
-    size_t file_size = ftell(file);
-    rewind(file);
-    fread(fs->data_blocks[new_data_block_number].block, 1, file_size, file);
-    fs->data_blocks[new_data_block_number].size = file_size;
-
-    // Update the free blocks count
-    fs->s_block->free_blocks -= (file_size / BLOCK_SIZE) + 1;
-
-    fclose(file);
-    printf("File imported successfully.\n");
+    // TODO: mkfile (internal path to external path)
+    // TODO: writef (writes content into the file which created)
     return 0;
 }
 
 int
 fs_export(file_system* fs, char* int_path, char* ext_path) {
-    // Get the parent directory inode number
-    int parent_inode_number = fs->root_node;
-    char* token = strtok(int_path, "/");
-    while (token != NULL) {
-        // Check if the parent inode is a directory
-        if (fs->inodes[parent_inode_number].n_type != directory) {
-            printf("Parent is not a directory.\n");
-            return -1;
-        }
+    // TODO: Check internal path is valid
+    // TODO: Check external path is valid
 
-        // Check if the directory exists
-        int child_inode_number = -1;
-        for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
-            if (fs->inodes[parent_inode_number].direct_blocks[i] != -1 &&
-                strcmp(fs->inodes[fs->inodes[parent_inode_number].direct_blocks[i]].name, token) == 0) {
-                child_inode_number = fs->inodes[parent_inode_number].direct_blocks[i];
-                break;
-            }
-        }
-
-        // Directory does not exist
-        if (child_inode_number == -1) {
-            printf("Directory does not exist.\n");
-            return -1;
-        }
-
-        parent_inode_number = child_inode_number;
-        token = strtok(NULL, "/");
-    }
-
-    // Check if the file exists in the parent directory
-    int file_inode_number = -1;
-    for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
-        if (fs->inodes[parent_inode_number].direct_blocks[i] != -1 &&
-            strcmp(fs->inodes[fs->inodes[parent_inode_number].direct_blocks[i]].name, ext_path) == 0) {
-            file_inode_number = fs->inodes[parent_inode_number].direct_blocks[i];
-            break;
-        }
-    }
-
-    // File does not exist
-    if (file_inode_number == -1) {
-        printf("File does not exist.\n");
-        return -1;
-    }
-
-    // Get the data block number for the file
-    int data_block_number = fs->inodes[file_inode_number].direct_blocks[0];
-
-    // Check if the data block exists
-    if (data_block_number == -1) {
-        printf("Data block does not exist.\n");
-        return -1;
-    }
-
-    // Open the external file for writing
-    FILE* file = fopen(ext_path, "wb");
-    if (file == NULL) {
-        printf("Failed to open external file.\n");
-        return -1;
-    }
-
-    // Write the file contents from the data block to the external file
-    fwrite(fs->data_blocks[data_block_number].block, 1, fs->data_blocks[data_block_number].size, file);
-
-    fclose(file);
-    printf("File exported successfully.\n");
+    // TODO: readf (read content from the file which given argument)
+    // TODO: write (write content into the file which created in local OS)
     return 0;
 }

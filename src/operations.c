@@ -7,7 +7,8 @@
 
 /* ***** ***** ***** *****  HELPER  ***** ***** ***** ***** */
 // Helper function to find inode from filepath
-int find_inode(file_system* fs, char* path) {
+int
+find_inode(file_system* fs, char* path) {
     int curr_inode = fs->root_node;
     char* token = strtok(path, "/");
     while (token != NULL) {
@@ -32,7 +33,8 @@ int find_inode(file_system* fs, char* path) {
 }
 
 // Helper function to remove inode with inode idx from file-system
-void remove_inode(file_system* fs, int inode_num) {
+void
+remove_inode(file_system* fs, int inode_num) {
     inode* curr_inode = &fs->inodes[inode_num];
 
     if (curr_inode->n_type == directory) {
@@ -53,7 +55,8 @@ void remove_inode(file_system* fs, int inode_num) {
 }
 
 // Helper function to remove inode from parent dir
-void remove_inode_from_parent_directory(file_system* fs, int parent_inode_num, int inode_num) {
+void
+remove_inode_from_parent_directory(file_system* fs, int parent_inode_num, int inode_num) {
     inode* parent_inode = &fs->inodes[parent_inode_num];
 
     for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
@@ -120,9 +123,11 @@ find_free_data_block(file_system* fs) {
 /* ***** ***** ***** *****  OPERATIONS  ***** ***** ***** ***** */
 int
 fs_mkdir(file_system* fs, char* path) {
-    if (path[0] != '/')
+    if (path[0] != '/') {
+        printf("[ERROR] Path should be start '/'\n");
         return -1;
-
+    }
+        
     // Separate the parent directory and the new directory name
     char* parent_path = NULL;
     char* dir_name = path;
@@ -200,9 +205,10 @@ fs_mkfile(file_system* fs, char* path_and_name) {
     if (last_slash == NULL) {
         // No path specified, create the file in the root directory
         char* filename = path_and_name;
-        if (filename[0] != '/')
+        if (filename[0] != '/') {
+            printf("[ERROR] Path should be start '/'\n");
             return -1;
-
+        }
         // Check if the file already exists in the root directory
         for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
             int inode_num = fs->inodes[fs->root_node].direct_blocks[i];
@@ -238,8 +244,10 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         return 0;
     }
 
-    if (path_and_name[0] != '/')
+    if (path_and_name[0] != '/') {
+        printf("[ERROR] Path should be start '/'\n");
         return -1;
+    }
 
     // Separate the path and filename
     *last_slash = '\0';  // Replace the last '/' with '\0' to separate the path
@@ -406,6 +414,8 @@ fs_writef(file_system* fs, char* filepath, char* text) {
         return -1;
     }
 
+    free(path);
+
     inode* file_inode = &fs->inodes[file_inode_num];
     if (file_inode->n_type != reg_file) {
         return -1;
@@ -504,7 +514,6 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
         parent_inode_num = find_parent_directory(fs, path);
         if (parent_inode_num == -1) {
             free(path);
-            free(filename);
             return NULL;
         }
     }
@@ -525,12 +534,10 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
 
     if (file_inode_num == -1) {
         free(path);
-        free(filename);
         return NULL;
     }
 
     free(path);
-    free(filename);
 
     inode* file_inode = &fs->inodes[file_inode_num];
     if (file_inode->n_type != reg_file) {
@@ -606,11 +613,13 @@ fs_import(file_system* fs, char* int_path, char* ext_path) {
     if (length > 0)
         fread(buffer, sizeof(char), length, file);   
 
-    int result = fs_mkfile(fs, strdup(int_path));    
+    char* copy_path = strdup(int_path);
+    int result = fs_mkfile(fs, copy_path);    
     result = fs_writef(fs, int_path, buffer);    
 
     fclose(file);
     free(buffer);
+    free(copy_path);
 
     if (result > 0)
         return 0;

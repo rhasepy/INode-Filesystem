@@ -6,7 +6,7 @@
 #include <string.h>
 
 /* ***** ***** ***** *****  HELPER  ***** ***** ***** ***** */
-// Helper function to ...
+// Helper function to find inode from filepath
 int find_inode(file_system* fs, char* path) {
     int curr_inode = fs->root_node;
     char* token = strtok(path, "/");
@@ -31,18 +31,7 @@ int find_inode(file_system* fs, char* path) {
     return curr_inode;
 }
 
-// Helper function to ...
-int find_inode_name(file_system* fs, const char* name) {
-    for (int i = 0; i < fs->s_block->num_blocks; i++) {
-        inode* curr_inode = &fs->inodes[i];
-        if (curr_inode->n_type != free_block && strcmp(curr_inode->name, name) == 0) {
-            return i; // Found the inode with the matching name
-        }
-    }
-    return -1; // Inode not found
-}
-
-// Helper function to ...
+// Helper function to remove inode with inode idx from file-system
 void remove_inode(file_system* fs, int inode_num) {
     inode* curr_inode = &fs->inodes[inode_num];
 
@@ -63,7 +52,7 @@ void remove_inode(file_system* fs, int inode_num) {
     fs->free_list[0] = 1;
 }
 
-// Helper function to ...
+// Helper function to remove inode from parent dir
 void remove_inode_from_parent_directory(file_system* fs, int parent_inode_num, int inode_num) {
     inode* parent_inode = &fs->inodes[parent_inode_num];
 
@@ -96,7 +85,6 @@ find_parent_directory(file_system* fs, char* path) {
                         found = 1;
                         break;
                     } else {
-                        printf("'%s' is not a directory.\n", token);
                         return -1;
                     }
                 }
@@ -104,7 +92,6 @@ find_parent_directory(file_system* fs, char* path) {
         }
 
         if (!found) {
-            printf("Directory '%s' not found.\n", token);
             return -1;
         }
 
@@ -114,24 +101,7 @@ find_parent_directory(file_system* fs, char* path) {
     return parent_inode_num;
 }
 
-// Helper function to ...
-char*
-reverse_str(char *str)
-{
-    char *p1, *p2;
-
-    if (! str || ! *str)
-        return str;
-
-    for (p1 = str, p2 = str + strlen(str) - 1; p2 > p1; ++p1, --p2) {
-        *p1 ^= *p2;
-        *p2 ^= *p1;
-        *p1 ^= *p2;
-    }
-    return str;
-}
-
-// Helper function to ...
+// Helper function to find free data block into the file-system
 int
 find_free_data_block(file_system* fs) {
     // Iterate over data blocks and find the first free data block
@@ -143,21 +113,6 @@ find_free_data_block(file_system* fs) {
         }
     }
     return -1; // No free data block found
-}
-
-// Helper function to ...
-char*
-getFileName(char* path) {
-    char* filename = strrchr(path, '/'); // Find the last occurrence of '/'
-    if (filename == NULL) {
-        filename = strrchr(path, '\\'); // Find the last occurrence of '\'
-    }
-    if (filename == NULL) {
-        filename = path; // If no '/' or '\' found, assume the path is the filename
-    } else {
-        filename++; // Move past the '/' or '\'
-    }
-    return filename;
 }
 
 /**********************************************************************************************************************************************/
@@ -198,7 +153,6 @@ fs_mkdir(file_system* fs, char* path) {
                 }
             }
             if (!found) {
-                printf("Parent directory '%s' not found.\n", token);
                 return -1;
             }
             token = strtok(NULL, "/");
@@ -211,25 +165,15 @@ fs_mkdir(file_system* fs, char* path) {
         if (inode_num != -1) {
             inode* curr_inode = &fs->inodes[inode_num];
             if (strcmp(curr_inode->name, dir_name) == 0 && curr_inode->n_type == directory) {
-                printf("Directory '%s' already exists.\n", dir_name);
                 return -1;
             }
         }
     }
-
-    // Find a free inode for the new directory
-    int new_inode_num = -1;
-    for (int i = 0; i < fs->s_block->num_blocks; i++) {
-        if (fs->free_list[i] == 1) {
-            new_inode_num = i;
-            fs->free_list[i] = 0;
-            break;
-        }
-    }
+    int new_inode_num = find_free_inode(fs);
     if (new_inode_num == -1) {
-        printf("No free inode available.\n");
         return -1;
     }
+    fs->free_list[new_inode_num] = 0;
 
     // Create the new directory inode
     inode* new_dir = &fs->inodes[new_inode_num];
@@ -246,7 +190,6 @@ fs_mkdir(file_system* fs, char* path) {
         }
     }
 
-    printf("Directory '%s' created successfully.\n", new_dir->name);
     return 0;
 }
 
@@ -257,6 +200,8 @@ fs_mkfile(file_system* fs, char* path_and_name) {
     if (last_slash == NULL) {
         // No path specified, create the file in the root directory
         char* filename = path_and_name;
+        if (filename[0] != '/')
+            return -1;
 
         // Check if the file already exists in the root directory
         for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
@@ -264,7 +209,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
             if (inode_num != -1) {
                 inode* curr_inode = &fs->inodes[inode_num];
                 if (strcmp(curr_inode->name, filename) == 0 && curr_inode->n_type == reg_file) {
-                    printf("File '%s' already exists.\n", filename);
                     return -2;
                 }
             }
@@ -273,7 +217,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         // Find a free inode for the new file
         int new_inode_num = find_free_inode(fs);
         if (new_inode_num == -1) {
-            printf("No free inode available.\n");
             return -1;
         }
 
@@ -292,7 +235,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
             }
         }
 
-        printf("File '%s' created successfully in the root directory.\n", filename);
         return 0;
     }
 
@@ -322,7 +264,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         }
         if (!found) {
             // Parent directory does not exist
-            printf("Parent directory '%s' does not exist.\n", token);
             return -1;
         }
         token = strtok(NULL, "/");
@@ -334,7 +275,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         if (inode_num != -1) {
             inode* curr_inode = &fs->inodes[inode_num];
             if (strcmp(curr_inode->name, filename) == 0 && curr_inode->n_type == reg_file) {
-                printf("File '%s' already exists.\n", filename);
                 return -2;
             }
         }
@@ -343,7 +283,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
     // Find a free inode for the new file
     int new_inode_num = find_free_inode(fs);
     if (new_inode_num == -1) {
-        printf("No free inode available.\n");
         return -1;
     }
 
@@ -362,7 +301,6 @@ fs_mkfile(file_system* fs, char* path_and_name) {
         }
     }
 
-    printf("File '%s' created successfully.\n", filename);
     return 0;
 }
 
@@ -385,7 +323,6 @@ fs_list(file_system* fs, char* path) {
             }
         }
         if (!found) {
-            printf("Directory '%s' not found.\n", token);
             return NULL;
         }
         token = strtok(NULL, "/");
@@ -445,7 +382,6 @@ fs_writef(file_system* fs, char* filepath, char* text) {
     } else {
         parent_inode_num = find_parent_directory(fs, path);
         if (parent_inode_num == -1) {
-            printf("Directory '%s' not found.\n", path);
             free(path);
             return -1;
         }
@@ -466,14 +402,12 @@ fs_writef(file_system* fs, char* filepath, char* text) {
     }
 
     if (file_inode_num == -1) {
-        printf("File '%s' does not exist.\n", filepath);
         free(path);
         return -1;
     }
 
     inode* file_inode = &fs->inodes[file_inode_num];
     if (file_inode->n_type != reg_file) {
-        printf("'%s' is not a regular file.\n", filepath);
         return -1;
     }
 
@@ -519,23 +453,23 @@ fs_writef(file_system* fs, char* filepath, char* text) {
         // Find a free data block
         int new_block_num = find_free_data_block(fs);
         if (new_block_num == -1) {
-            printf("File '%s' is full.\n", filepath);
             return -2;
         }
 
         // Update the file inode with the new data block
         if (last_block_idx == DIRECT_BLOCKS_COUNT - 1) {
-            printf("File '%s' is full.\n", filepath);
             return -2;
         }
 
         last_block_idx++;
+        file_inode->direct_blocks[0] = 0;
         file_inode->direct_blocks[last_block_idx] = new_block_num;
 
         // Write as much text as possible to the new block
         data_block* new_block = &fs->data_blocks[new_block_num];
         int remaining_space = BLOCK_SIZE;
         int copy_len = (total_text_len > remaining_space) ? remaining_space : total_text_len;
+        file_inode->size += copy_len;
 
         memcpy(new_block->block, text, copy_len);
         new_block->size = copy_len;
@@ -569,7 +503,6 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
     } else {
         parent_inode_num = find_parent_directory(fs, path);
         if (parent_inode_num == -1) {
-            printf("Directory '%s' not found.\n", path);
             free(path);
             return NULL;
         }
@@ -590,14 +523,12 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
     }
 
     if (file_inode_num == -1) {
-        printf("File '%s' does not exist.\n", filepath);
         free(path);
         return NULL;
     }
 
     inode* file_inode = &fs->inodes[file_inode_num];
     if (file_inode->n_type != reg_file) {
-        printf("'%s' is not a regular file.\n", filename);
         return NULL;
     }
 
@@ -612,14 +543,15 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
     }
 
     // Allocate memory for the buffer
-    char* buffer = (char*)malloc(sizeof(char) * (*file_size));
+    int size = (*file_size) + 1;
+    uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t) * size);
     if (buffer == NULL) {
-        printf("Memory allocation failed.\n");
         return NULL;
     }
+    memset(buffer, '\0', size);
 
     // Read the file into the buffer
-    char* ptr = buffer;
+    uint8_t* ptr = buffer;
     for (int i = 0; i < DIRECT_BLOCKS_COUNT; i++) {
         int block_num = file_inode->direct_blocks[i];
         if (block_num != -1) {
@@ -628,21 +560,17 @@ fs_readf(file_system* fs, char* filepath, int* file_size) {
             ptr += block->size;
         }
     }
-    
-
-    printf("[READF] SIZE: %d\nCONTENT: %s\n", (*file_size), buffer);
 
     if (*file_size == 0)
         return NULL;
 
-    return (uint8_t*) buffer;
+    return buffer;
 }
 
 int
 fs_rm(file_system* fs, char* path) {
     int inode_num = find_inode(fs, path);
     if (inode_num == -1) {
-        printf("Directory or file not found.\n");
         return -1; // File or directory not found
     }
 
@@ -655,7 +583,6 @@ fs_rm(file_system* fs, char* path) {
     // Remove the inode and its subdirectories/files recursively
     remove_inode(fs, inode_num);
 
-    printf("Directory or file removed success!\n");
     return 0; // Removal successful
 }
 
@@ -663,7 +590,6 @@ int
 fs_import(file_system* fs, char* int_path, char* ext_path) {
     FILE* file = fopen(ext_path, "r"); // Open a file for reading
     if (file == NULL) {
-        printf("IMPORT: No such file or directory\n");
         return -1;
     }
     fseek (file, 0, SEEK_END);
@@ -675,13 +601,12 @@ fs_import(file_system* fs, char* int_path, char* ext_path) {
     if (length > 0)
         fread(buffer, sizeof(char), length, file);   
 
-    int result = fs_mkfile(fs, strdup(int_path));
-    result = fs_writef(fs, int_path, buffer);
+    int result = fs_mkfile(fs, strdup(int_path));    
+    result = fs_writef(fs, int_path, buffer);    
 
-    if (result != 0)
-        return -1;
-
-    return result;
+    if (result > 0)
+        return 0;
+    return -1;
 }
 
 int
@@ -689,20 +614,17 @@ fs_export(file_system* fs, char* int_path, char* ext_path) {
     int fileSize = -1;
     uint8_t* content = fs_readf(fs, int_path, &fileSize);
     if (content == NULL) {
-        printf("No such file or directory..\n");
         return -1;
     }
 
     FILE* file = fopen(ext_path, "r");
-    if (file != NULL) {
-        printf("Error: File already exists.\n");
+    if (file != NULL) {;
         fclose(file);
         return -1;
     }
 
     file = fopen(ext_path, "w");
     if (file == NULL) {
-        printf("Error: Failed to create the file.\n");
         return -1;
     }
 

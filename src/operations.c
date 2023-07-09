@@ -667,10 +667,36 @@ fs_import(file_system* fs, char* int_path, char* ext_path) {
 
 int
 fs_export(file_system* fs, char* int_path, char* ext_path) {
-    // TODO: Check internal path is valid
-    // TODO: Check external path is valid
+    int fileSize = -1;
+    uint8_t* content = fs_readf(fs, int_path, &fileSize);
+    if (content == NULL) {
+        printf("No such file or directory..\n");
+        return -1;
+    }
 
-    // TODO: readf (read content from the file which given argument)
-    // TODO: write (write content into the file which created in local OS)
+    char* int_filename = getFileName(strdup(int_path));
+    int local_os_filepath_size = strlen(ext_path) + strlen(int_filename) + 2;
+    char* local_os_filepath = malloc(sizeof(char) * local_os_filepath_size); memset(local_os_filepath, '\0', local_os_filepath_size);
+
+    strcpy(local_os_filepath, ext_path);
+    if (ext_path[strlen(ext_path) - 1] != '/')
+        strcat(local_os_filepath, "/");
+    strcat(local_os_filepath, int_filename);
+
+    FILE* file = fopen(local_os_filepath, "r");
+    if (file != NULL) {
+        printf("Error: File already exists.\n");
+        fclose(file);
+        return -1;
+    }
+
+    file = fopen(local_os_filepath, "w");
+    if (file == NULL) {
+        printf("Error: Failed to create the file.\n");
+        return -1;
+    }
+
+    fwrite(content, sizeof(char), fileSize, file);
+    fclose(file);    
     return 0;
 }
